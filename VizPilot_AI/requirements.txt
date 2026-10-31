@@ -2,7 +2,4 @@ streamlit
 pandas
 duckdb
 plotly
-python-dotenv
-sqlglot
 google-genai
-groq
