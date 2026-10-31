@@ -57,13 +57,13 @@ uploaded_file = st.sidebar.file_uploader(
     type=["csv"]
 )
 
-if st.sidebar.button("Load Sample Dataset"):
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data" / "sample_sales.csv"
 
-st.session_state.df = pd.read_csv(CSV_PATH)
+if "df" not in st.session_state:
+    st.session_state.df = pd.read_csv(CSV_PATH)
 
 if uploaded_file:
     try:
