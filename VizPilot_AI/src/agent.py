@@ -1,10 +1,9 @@
 
-
 import re
 import duckdb
 import pandas as pd
-import google.generativeai as genai
 import streamlit as st
+from google import genai
 
 
 class VisualizationAgent:
@@ -12,27 +11,77 @@ class VisualizationAgent:
     def __init__(self):
         api_key = st.secrets["GOOGLE_API_KEY"]
 
-        genai.configure(api_key=api_key)
-
-        self.model = genai.GenerativeModel(
-            "gemini-2.0-flash"
-        )
-
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = "gemini-3.8-flash"
         self.max_attempts = 3
 
+    # Send prompts to Gemini using the Interactions API
+    def generate_text(self, prompt):
+        response = self.client.interactions.create(
+            model=self.model_name,
+            input=prompt
+        )
+
+        text = response.output_text
+
+        if not text:
+            raise RuntimeError("Gemini returned an empty response.")
+
+        return text.strip()
+
+    # Analyze dataset columns
     def get_schema(self, df):
         schema = []
 
         for col in df.columns:
-            schema.append(
-                f"{col}: {df[col].dtype}"
-            )
+            schema.append(f"{col}: {df[col].dtype}")
 
         return "\n".join(schema)
 
+    # Remove markdown formatting from generated SQL
+    def clean_sql(self, sql):
+        sql = re.sub(
+            r"```(?:sql)?",
+            "",
+            sql,
+            flags=re.IGNORECASE
+        )
+        return sql.strip().rstrip(";").strip()
+
+    # Basic safety validation for generated SQL
+    def validate_sql(self, sql):
+        sql = self.clean_sql(sql)
+
+        if not re.match(r"^(SELECT|WITH)\b", sql, re.IGNORECASE):
+            raise ValueError("Only SELECT queries are allowed.")
+
+        if ";" in sql:
+            raise ValueError("Multiple SQL statements are not allowed.")
+
+        blocked = (
+            r"\b(COPY|ATTACH|DETACH|INSTALL|LOAD|CREATE|INSERT|"
+            r"UPDATE|DELETE|DROP|ALTER|EXPORT|IMPORT|PRAGMA|"
+            r"CALL|SET|RESET|VACUUM)\b"
+        )
+
+        if re.search(blocked, sql, re.IGNORECASE):
+            raise ValueError("The SQL query contains a prohibited operation.")
+
+        external_functions = (
+            r"\b(read_csv|read_csv_auto|read_parquet|read_json|"
+            r"read_json_auto|read_text|read_blob|glob)\s*\("
+        )
+
+        if re.search(external_functions, sql, re.IGNORECASE):
+            raise ValueError("External file access is not allowed.")
+
+        return sql
+
+    # Generate SQL from the user's question
     def generate_sql(self, question, schema):
+
         prompt = f"""
-You are an expert SQL data analyst.
+You are an expert DuckDB SQL data analyst.
 
 Dataset table name: uploaded_data
 
@@ -42,25 +91,26 @@ Dataset schema:
 User question:
 {question}
 
-Generate a valid DuckDB SQL query.
+Generate a valid DuckDB SELECT query.
 
 Rules:
 1. Use only existing column names.
 2. Use uploaded_data as the table name.
 3. Generate SELECT queries only.
-4. Return only SQL code.
-5. Do not use markdown code blocks.
+4. Do not access external files or tables.
+5. Return only SQL code.
+6. Do not use markdown code blocks.
 """
 
-        response = self.model.generate_content(prompt)
+        response = self.generate_text(prompt)
 
-        return self.clean_sql(response.text)
+        return self.validate_sql(response)
 
-    def clean_sql(self, sql):
-        sql = re.sub(r"```sql|```", "", sql)
-        return sql.strip().rstrip(";")
-
+    # Execute SQL using DuckDB
     def execute_sql(self, sql, df):
+
+        sql = self.validate_sql(sql)
+
         con = duckdb.connect(database=":memory:")
 
         try:
@@ -73,6 +123,7 @@ Rules:
         finally:
             con.close()
 
+    # Ask Gemini to correct failed SQL
     def correct_sql(
         self,
         question,
@@ -80,6 +131,7 @@ Rules:
         previous_sql,
         error
     ):
+
         prompt = f"""
 You are an expert DuckDB SQL debugging assistant.
 
@@ -89,27 +141,31 @@ Original user question:
 Dataset schema:
 {schema}
 
-Previous incorrect SQL:
+Previous SQL query:
 {previous_sql}
 
 Database execution error:
 {error}
 
-Correct the SQL query.
+Generate a corrected DuckDB SELECT query.
 
 Rules:
 1. Use only columns present in the schema.
 2. Use uploaded_data as the table name.
 3. Generate SELECT queries only.
-4. Preserve the user's original intention.
-5. Return only corrected SQL.
+4. Do not access external files or tables.
+5. Preserve the original user intention.
+6. Return only corrected SQL.
+7. Do not use markdown code blocks.
 """
 
-        response = self.model.generate_content(prompt)
+        response = self.generate_text(prompt)
 
-        return self.clean_sql(response.text)
+        return self.validate_sql(response)
 
+    # Select an appropriate chart
     def choose_chart(self, question, result):
+
         prompt = f"""
 You are a data visualization expert.
 
@@ -133,9 +189,9 @@ EXPLANATION: short explanation
 CHART: chart type
 """
 
-        response = self.model.generate_content(prompt)
+        response = self.generate_text(prompt)
 
-        details = response.text.strip().splitlines()
+        details = response.splitlines()
 
         values = {}
 
@@ -147,8 +203,13 @@ CHART: chart type
         chart_type = values.get("CHART", "bar").lower()
 
         allowed = [
-            "bar", "line", "pie",
-            "scatter", "histogram", "box", "table"
+            "bar",
+            "line",
+            "pie",
+            "scatter",
+            "histogram",
+            "box",
+            "table"
         ]
 
         if chart_type not in allowed:
@@ -160,7 +221,10 @@ CHART: chart type
         y = columns[1] if len(columns) >= 2 else None
 
         return {
-            "title": values.get("TITLE", "Data Visualization"),
+            "title": values.get(
+                "TITLE",
+                "Data Visualization"
+            ),
             "explanation": values.get(
                 "EXPLANATION",
                 "Dataset analysis completed."
@@ -170,12 +234,13 @@ CHART: chart type
             "y": y
         }
 
+    # Main agent execution
     def run(self, question, df):
 
         trace = []
 
         try:
-            # Step 1: Analyze dataset schema
+            # Step 1: Analyze dataset
             schema = self.get_schema(df)
 
             trace.append(
@@ -193,7 +258,7 @@ CHART: chart type
                 "Step 3: SQL query generated."
             )
 
-            # Step 3: Execute and self-correct
+            # Step 3: Execute SQL and self-correct
             result = None
 
             for attempt in range(self.max_attempts):
@@ -213,18 +278,13 @@ CHART: chart type
                         f"Attempt {attempt + 1}: SQL execution failed."
                     )
 
-                    trace.append(
-                        f"Error detected: {str(error)}"
-                    )
-
                     if attempt == self.max_attempts - 1:
                         raise RuntimeError(
-                            "SQL execution failed after "
-                            f"{self.max_attempts} attempts: {error}"
+                            f"SQL failed after {self.max_attempts} attempts: {error}"
                         )
 
                     trace.append(
-                        "Self-correction: Sending error to AI."
+                        "Self-correction: Sending error to Gemini."
                     )
 
                     sql = self.correct_sql(
@@ -238,7 +298,10 @@ CHART: chart type
                         f"Attempt {attempt + 2}: Corrected SQL generated."
                     )
 
-            # Step 4: Generate visualization
+            if result is None:
+                raise RuntimeError("No SQL result was generated.")
+
+            # Step 4: Generate chart information
             chart_details = self.choose_chart(
                 question,
                 result
