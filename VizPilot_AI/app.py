@@ -8,8 +8,9 @@ genai.configure(api_key=API_KEY)
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from src.agent import VisualizationAgent
 
+from pathlib import Path
+from src.agent import VisualizationAgent
 st.set_page_config(
     page_title="VizPilot AI",
     page_icon="✦",
