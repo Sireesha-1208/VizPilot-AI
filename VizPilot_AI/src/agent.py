@@ -1,5 +1,4 @@
 
-
 import re
 import duckdb
 import pandas as pd
@@ -9,14 +8,23 @@ from google import genai
 
 class VisualizationAgent:
 
+    def __init__(self):
+        # Gemini API configuration
+        api_key = st.secrets["GOOGLE_API_KEY"]
+
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = "gemini-3.8-flash"
+        self.max_attempts = 3
+
+    # Generate text using Gemini
     def generate_text(self, prompt):
+
         try:
             response = self.client.interactions.create(
                 model=self.model_name,
                 input=prompt,
                 timeout=60,
                 generation_config={
-                    "thinking_level": "low",
                     "max_output_tokens": 800
                 }
             )
@@ -24,7 +32,9 @@ class VisualizationAgent:
             text = response.output_text
 
             if not text:
-                raise RuntimeError("Gemini returned an empty response.")
+                raise RuntimeError(
+                    "Gemini returned an empty response."
+                )
 
             return text.strip()
 
@@ -33,21 +43,19 @@ class VisualizationAgent:
                 f"Gemini API request failed: {error}"
             ) from error
 
-    except Exception as error:
-        raise RuntimeError(
-            f"Gemini API request failed: {error}"
-        ) from error
     # Analyze dataset columns
     def get_schema(self, df):
 
         schema = []
 
         for col in df.columns:
-            schema.append(f"{col}: {df[col].dtype}")
+            schema.append(
+                f"{col}: {df[col].dtype}"
+            )
 
         return "\n".join(schema)
 
-    # Remove markdown formatting from SQL
+    # Clean generated SQL
     def clean_sql(self, sql):
 
         sql = re.sub(
@@ -59,7 +67,7 @@ class VisualizationAgent:
 
         return sql.strip().rstrip(";").strip()
 
-    # Validate generated SQL
+    # Validate SQL query
     def validate_sql(self, sql):
 
         sql = self.clean_sql(sql)
@@ -79,9 +87,9 @@ class VisualizationAgent:
             )
 
         blocked = (
-            r"\b(COPY|ATTACH|DETACH|INSTALL|LOAD|CREATE|INSERT|"
-            r"UPDATE|DELETE|DROP|ALTER|EXPORT|IMPORT|PRAGMA|"
-            r"CALL|SET|RESET|VACUUM)\b"
+            r"\b(COPY|ATTACH|DETACH|INSTALL|LOAD|CREATE|"
+            r"INSERT|UPDATE|DELETE|DROP|ALTER|EXPORT|"
+            r"IMPORT|PRAGMA|CALL|SET|RESET|VACUUM)\b"
         )
 
         if re.search(blocked, sql, re.IGNORECASE):
@@ -90,8 +98,9 @@ class VisualizationAgent:
             )
 
         external_functions = (
-            r"\b(read_csv|read_csv_auto|read_parquet|read_json|"
-            r"read_json_auto|read_text|read_blob|glob)\s*\("
+            r"\b(read_csv|read_csv_auto|read_parquet|"
+            r"read_json|read_json_auto|read_text|"
+            r"read_blob|glob)\s*\("
         )
 
         if re.search(
@@ -142,7 +151,6 @@ Rules:
         con = duckdb.connect(database=":memory:")
 
         try:
-            # Disable external file access
             con.execute(
                 "SET enable_external_access = false"
             )
@@ -258,7 +266,6 @@ CHART: chart type
         columns = list(result.columns)
 
         x = columns[0] if len(columns) >= 1 else None
-
         y = columns[1] if len(columns) >= 2 else None
 
         return {
@@ -273,9 +280,7 @@ CHART: chart type
             ),
 
             "chart_type": chart_type,
-
             "x": x,
-
             "y": y
         }
 
@@ -285,7 +290,6 @@ CHART: chart type
         trace = []
 
         try:
-
             # Step 1: Analyze dataset
             schema = self.get_schema(df)
 
@@ -313,7 +317,6 @@ CHART: chart type
             for attempt in range(self.max_attempts):
 
                 try:
-
                     result = self.execute_sql(
                         sql,
                         df
@@ -370,25 +373,15 @@ CHART: chart type
 
             # Return final result
             return {
-
                 "status": "success",
-
                 "title": chart_details["title"],
-
                 "explanation": chart_details["explanation"],
-
                 "data": result,
-
                 "sql": sql,
-
                 "chart_type": chart_details["chart_type"],
-
                 "x": chart_details["x"],
-
                 "y": chart_details["y"],
-
                 "trace": trace
-
             }
 
         except Exception as error:
@@ -398,11 +391,7 @@ CHART: chart type
             )
 
             return {
-
                 "status": "error",
-
                 "error": str(error),
-
                 "trace": trace
-
             }
