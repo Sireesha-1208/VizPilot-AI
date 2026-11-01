@@ -1,46 +1,62 @@
 
-import google.generativeai as genai
-
-API_KEY = "AQ.Ab8RN6KkkFgpd7iR-k8Pit-3D-zWqqSkbGqoWkTFy578rOSnkA"
-
-genai.configure(api_key=API_KEY)
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
 from pathlib import Path
 from src.agent import VisualizationAgent
+
+
+# --------------------------------
+# PAGE CONFIGURATION
+# --------------------------------
+
 st.set_page_config(
     page_title="VizPilot AI",
     page_icon="✦",
     layout="wide"
 )
 
+
+# --------------------------------
+# CUSTOM CSS
+# --------------------------------
+
 st.markdown("""
 <style>
 .stApp {
     background: linear-gradient(135deg, #f5f7ff, #eef0ff);
 }
+
 .block-container {
     padding-top: 2rem;
 }
+
 .hero {
-    background: linear-gradient(120deg, #111827, #312e81, #4f46e5);
+    background: linear-gradient(
+        120deg, #111827, #312e81, #4f46e5
+    );
     padding: 40px;
     border-radius: 20px;
     color: white;
 }
+
 .hero h1 {
     font-size: 44px;
     color: white;
 }
+
 .hero p {
     color: #dbeafe;
     font-size: 17px;
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+# --------------------------------
+# HEADER
+# --------------------------------
 
 st.markdown("""
 <div class="hero">
@@ -50,6 +66,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+
+# --------------------------------
+# SIDEBAR
+# --------------------------------
+
 st.sidebar.title("✦ VizPilot AI")
 st.sidebar.caption("Intelligent Data Analytics")
 
@@ -58,35 +79,88 @@ uploaded_file = st.sidebar.file_uploader(
     type=["csv"]
 )
 
-from pathlib import Path
+
+# --------------------------------
+# DATASET LOADING
+# --------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
+
 CSV_PATH = BASE_DIR / "data" / "sample_sales.csv"
 
 if "df" not in st.session_state:
-    st.session_state.df = pd.read_csv(CSV_PATH)
+    st.session_state.df = None
 
-if uploaded_file:
+# Load sample dataset if available
+if st.session_state.df is None and CSV_PATH.exists():
+    try:
+        st.session_state.df = pd.read_csv(CSV_PATH)
+    except Exception as e:
+        st.error(f"Unable to load sample dataset: {e}")
+
+# Load uploaded dataset
+if uploaded_file is not None:
     try:
         st.session_state.df = pd.read_csv(uploaded_file)
+        st.sidebar.success("Dataset uploaded successfully!")
     except Exception as e:
         st.sidebar.error(f"Unable to read CSV: {e}")
 
+
+# --------------------------------
+# MAIN WORKSPACE
+# --------------------------------
+
 st.title("Your Data Analytics Workspace")
 
-if "df" not in st.session_state:
-    st.info("Upload a CSV file or click Load Sample Dataset in the sidebar.")
+if (
+    st.session_state.df is None
+    or st.session_state.df.empty
+):
+    st.info(
+        "Please upload a CSV dataset using the sidebar "
+        "or add data/sample_sales.csv to your project."
+    )
     st.stop()
 
 df = st.session_state.df
 
+
+# --------------------------------
+# DATASET METRICS
+# --------------------------------
+
 a, b, c = st.columns(3)
+
 a.metric("Total Records", len(df))
 b.metric("Total Columns", len(df.columns))
-c.metric("Missing Values", int(df.isna().sum().sum()))
+c.metric(
+    "Missing Values",
+    int(df.isna().sum().sum())
+)
+
+
+# --------------------------------
+# VIEW DATASET
+# --------------------------------
 
 with st.expander("View Dataset"):
-    st.dataframe(df.head(20), use_container_width=True)
+    st.dataframe(
+        df.head(20),
+        use_container_width=True
+    )
+
+with st.expander("Dataset Information"):
+    st.write("Column Names:")
+    st.write(list(df.columns))
+
+    st.write("Data Types:")
+    st.write(df.dtypes.astype(str))
+
+
+# --------------------------------
+# ASK YOUR DATA
+# --------------------------------
 
 st.subheader("Ask Your Data")
 
@@ -97,70 +171,206 @@ question = st.text_input(
 
 st.caption(
     "Try: Which category has the highest sales? "
-    "Show total profit by region. Count records by category."
+    "Show total profit by region. "
+    "Count records by category."
 )
 
-if st.button("Generate Visualization", type="primary"):
+
+# --------------------------------
+# GENERATE VISUALIZATION
+# --------------------------------
+
+if st.button(
+    "Generate Visualization",
+    type="primary"
+):
+
     if not question.strip():
+
         st.warning("Please enter a question.")
+
     else:
-        with st.spinner("Analyzing your question..."):
-            agent = VisualizationAgent()
-            result = agent.run(question, df)
 
-        if result["status"] == "success":
-            st.success("Visualization generated successfully!")
+        try:
 
-            st.write("###", result["title"])
-            st.write(result["explanation"])
+            with st.spinner(
+                "Analyzing your question..."
+            ):
 
-            output = result["data"]
-            chart = result["chart_type"]
-            x = result.get("x")
-            y = result.get("y")
+                agent = VisualizationAgent()
 
-            if chart == "line" and x and y:
-                fig = px.line(output, x=x, y=y, markers=True)
-            elif chart == "pie" and x and y:
-                fig = px.pie(output, names=x, values=y)
-            elif chart == "scatter" and x and y:
-                fig = px.scatter(output, x=x, y=y)
-            elif chart == "histogram" and x:
-                fig = px.histogram(output, x=x)
-            elif chart == "box" and x and y:
-                fig = px.box(output, x=x, y=y)
-            elif x and y:
-                fig = px.bar(output, x=x, y=y)
+                result = agent.run(question, df)
+
+            if result.get("status") == "success":
+
+                st.success(
+                    "Visualization generated successfully!"
+                )
+
+                # Chart title
+                st.subheader(
+                    result.get("title", "Generated Visualization")
+                )
+
+                # Explanation
+                st.write(
+                    result.get(
+                        "explanation",
+                        "Analysis completed successfully."
+                    )
+                )
+
+                # Result data
+                output = result["data"]
+
+                chart = result.get("chart_type")
+
+                x = result.get("x")
+                y = result.get("y")
+
+                # --------------------------------
+                # CHART GENERATION
+                # --------------------------------
+
+                if chart == "line" and x and y:
+
+                    fig = px.line(
+                        output,
+                        x=x,
+                        y=y,
+                        markers=True
+                    )
+
+                elif chart == "pie" and x and y:
+
+                    fig = px.pie(
+                        output,
+                        names=x,
+                        values=y
+                    )
+
+                elif chart == "scatter" and x and y:
+
+                    fig = px.scatter(
+                        output,
+                        x=x,
+                        y=y
+                    )
+
+                elif chart == "histogram" and x:
+
+                    fig = px.histogram(
+                        output,
+                        x=x
+                    )
+
+                elif chart == "box" and x and y:
+
+                    fig = px.box(
+                        output,
+                        x=x,
+                        y=y
+                    )
+
+                elif x and y:
+
+                    fig = px.bar(
+                        output,
+                        x=x,
+                        y=y
+                    )
+
+                else:
+
+                    fig = None
+
+                if fig is not None:
+
+                    fig.update_layout(
+                        template="plotly_white",
+                        title=result.get("title", "")
+                    )
+
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True
+                    )
+
+                # --------------------------------
+                # QUERY RESULT
+                # --------------------------------
+
+                st.subheader("Query Result")
+
+                st.dataframe(
+                    output,
+                    use_container_width=True
+                )
+
+                # --------------------------------
+                # GENERATED SQL
+                # --------------------------------
+
+                with st.expander("Generated SQL"):
+
+                    st.code(
+                        result.get("sql", "SQL unavailable"),
+                        language="sql"
+                    )
+
+                # --------------------------------
+                # EXECUTION TRACE
+                # --------------------------------
+
+                with st.expander("Agent Execution Trace"):
+
+                    for step in result.get("trace", []):
+                        st.write("•", step)
+
+                # --------------------------------
+                # DOWNLOAD RESULTS
+                # --------------------------------
+
+                st.download_button(
+                    label="Download Results",
+                    data=output.to_csv(index=False),
+                    file_name="vizpilot_results.csv",
+                    mime="text/csv"
+                )
+
             else:
-                fig = None
 
-            if fig is not None:
-                fig.update_layout(template="plotly_white")
-                st.plotly_chart(fig, use_container_width=True)
+                st.error(
+                    result.get(
+                        "error",
+                        "Unable to generate visualization."
+                    )
+                )
 
-            st.subheader("Query Result")
-            st.dataframe(output, use_container_width=True)
+                st.write(
+                    result.get("trace", [])
+                )
 
-            with st.expander("Generated SQL"):
-                st.code(result["sql"], language="sql")
+        except Exception as e:
 
-            with st.expander("Agent Execution Trace"):
-                for step in result["trace"]:
-                    st.write("•", step)
-
-            st.download_button(
-                "Download Results",
-                output.to_csv(index=False),
-                "vizpilot_results.csv",
-                "text/csv"
+            st.error(
+                "An error occurred while processing your question."
             )
 
-        else:
-            st.error(result["error"])
-            st.write(result["trace"])
+            st.exception(e)
+
+
+# --------------------------------
+# FOOTER
+# --------------------------------
 
 st.divider()
+
 st.markdown(
-    "<center>VizPilot AI | Intelligent Data Visualization</center>",
+    """
+    <center>
+        VizPilot AI | Intelligent Data Visualization
+    </center>
+    """,
     unsafe_allow_html=True
 )
