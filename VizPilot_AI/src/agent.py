@@ -20,10 +20,16 @@ class VisualizationAgent:
 
     # Generate text using Gemini
     # Generate text using Gemini
-    def generate_text(self, prompt):
+   def generate_text(self, prompt):
+    try:
         response = self.client.interactions.create(
             model=self.model_name,
-            input=prompt
+            input=prompt,
+            timeout=60,
+            generation_config={
+                "thinking_level": "low",
+                "max_output_tokens": 800
+            }
         )
 
         text = response.output_text
@@ -32,6 +38,11 @@ class VisualizationAgent:
             raise RuntimeError("Gemini returned an empty response.")
 
         return text.strip()
+
+    except Exception as error:
+        raise RuntimeError(
+            f"Gemini API request failed: {error}"
+        ) from error
     # Analyze dataset columns
     def get_schema(self, df):
 
