@@ -19,19 +19,19 @@ class VisualizationAgent:
         self.max_attempts = 3
 
     # Generate text using Gemini
-   def generate_text(self, prompt):
-    response = self.client.interactions.create(
-        model=self.model_name,
-        input=prompt
-    )
+    # Generate text using Gemini
+    def generate_text(self, prompt):
+        response = self.client.interactions.create(
+            model=self.model_name,
+            input=prompt
+        )
 
-    text = response.output_text
+        text = response.output_text
 
-    if not text:
-        raise RuntimeError("Gemini returned an empty response.")
+        if not text:
+            raise RuntimeError("Gemini returned an empty response.")
 
-    return text.strip()
-
+        return text.strip()
     # Analyze dataset columns
     def get_schema(self, df):
 
