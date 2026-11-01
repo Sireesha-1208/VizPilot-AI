@@ -1,4 +1,5 @@
 
+
 import re
 import duckdb
 import pandas as pd
@@ -9,20 +10,23 @@ from google import genai
 class VisualizationAgent:
 
     def __init__(self):
+        # Gemini API configuration
         api_key = st.secrets["GOOGLE_API_KEY"]
 
         self.client = genai.Client(api_key=api_key)
-        self.model_name = "gemini-3.8-flash"
+
+        self.model_name = "gemini-2.5-flash"
         self.max_attempts = 3
 
-    # Send prompts to Gemini using the Interactions API
+    # Generate text using Gemini
     def generate_text(self, prompt):
-        response = self.client.interactions.create(
+
+        response = self.client.models.generate_content(
             model=self.model_name,
-            input=prompt
+            contents=prompt
         )
 
-        text = response.output_text
+        text = response.text
 
         if not text:
             raise RuntimeError("Gemini returned an empty response.")
@@ -31,6 +35,7 @@ class VisualizationAgent:
 
     # Analyze dataset columns
     def get_schema(self, df):
+
         schema = []
 
         for col in df.columns:
@@ -38,25 +43,36 @@ class VisualizationAgent:
 
         return "\n".join(schema)
 
-    # Remove markdown formatting from generated SQL
+    # Remove markdown formatting from SQL
     def clean_sql(self, sql):
+
         sql = re.sub(
-            r"```(?:sql)?",
+            r"```(?:sql)?|```",
             "",
             sql,
             flags=re.IGNORECASE
         )
+
         return sql.strip().rstrip(";").strip()
 
-    # Basic safety validation for generated SQL
+    # Validate generated SQL
     def validate_sql(self, sql):
+
         sql = self.clean_sql(sql)
 
-        if not re.match(r"^(SELECT|WITH)\b", sql, re.IGNORECASE):
-            raise ValueError("Only SELECT queries are allowed.")
+        if not re.match(
+            r"^(SELECT|WITH)\b",
+            sql,
+            re.IGNORECASE
+        ):
+            raise ValueError(
+                "Only SELECT queries are allowed."
+            )
 
         if ";" in sql:
-            raise ValueError("Multiple SQL statements are not allowed.")
+            raise ValueError(
+                "Multiple SQL statements are not allowed."
+            )
 
         blocked = (
             r"\b(COPY|ATTACH|DETACH|INSTALL|LOAD|CREATE|INSERT|"
@@ -65,19 +81,27 @@ class VisualizationAgent:
         )
 
         if re.search(blocked, sql, re.IGNORECASE):
-            raise ValueError("The SQL query contains a prohibited operation.")
+            raise ValueError(
+                "The SQL query contains a prohibited operation."
+            )
 
         external_functions = (
             r"\b(read_csv|read_csv_auto|read_parquet|read_json|"
             r"read_json_auto|read_text|read_blob|glob)\s*\("
         )
 
-        if re.search(external_functions, sql, re.IGNORECASE):
-            raise ValueError("External file access is not allowed.")
+        if re.search(
+            external_functions,
+            sql,
+            re.IGNORECASE
+        ):
+            raise ValueError(
+                "External file access is not allowed."
+            )
 
         return sql
 
-    # Generate SQL from the user's question
+    # Generate SQL from user question
     def generate_sql(self, question, schema):
 
         prompt = f"""
@@ -114,6 +138,11 @@ Rules:
         con = duckdb.connect(database=":memory:")
 
         try:
+            # Disable external file access
+            con.execute(
+                "SET enable_external_access = false"
+            )
+
             con.register("uploaded_data", df)
 
             result = con.execute(sql).fetchdf()
@@ -123,7 +152,7 @@ Rules:
         finally:
             con.close()
 
-    # Ask Gemini to correct failed SQL
+    # Correct failed SQL automatically
     def correct_sql(
         self,
         question,
@@ -163,7 +192,7 @@ Rules:
 
         return self.validate_sql(response)
 
-    # Select an appropriate chart
+    # Automatically select appropriate chart
     def choose_chart(self, question, result):
 
         prompt = f"""
@@ -184,6 +213,7 @@ Available chart types:
 bar, line, pie, scatter, histogram, box, table
 
 Return exactly three lines:
+
 TITLE: chart title
 EXPLANATION: short explanation
 CHART: chart type
@@ -196,11 +226,17 @@ CHART: chart type
         values = {}
 
         for line in details:
+
             if ":" in line:
+
                 key, value = line.split(":", 1)
+
                 values[key.strip().upper()] = value.strip()
 
-        chart_type = values.get("CHART", "bar").lower()
+        chart_type = values.get(
+            "CHART",
+            "bar"
+        ).lower()
 
         allowed = [
             "bar",
@@ -218,6 +254,7 @@ CHART: chart type
         columns = list(result.columns)
 
         x = columns[0] if len(columns) >= 1 else None
+
         y = columns[1] if len(columns) >= 2 else None
 
         return {
@@ -225,12 +262,16 @@ CHART: chart type
                 "TITLE",
                 "Data Visualization"
             ),
+
             "explanation": values.get(
                 "EXPLANATION",
                 "Dataset analysis completed."
             ),
+
             "chart_type": chart_type,
+
             "x": x,
+
             "y": y
         }
 
@@ -240,6 +281,7 @@ CHART: chart type
         trace = []
 
         try:
+
             # Step 1: Analyze dataset
             schema = self.get_schema(df)
 
@@ -252,19 +294,26 @@ CHART: chart type
             )
 
             # Step 2: Generate SQL
-            sql = self.generate_sql(question, schema)
+            sql = self.generate_sql(
+                question,
+                schema
+            )
 
             trace.append(
                 "Step 3: SQL query generated."
             )
 
-            # Step 3: Execute SQL and self-correct
+            # Step 3: Execute SQL with self-correction
             result = None
 
             for attempt in range(self.max_attempts):
 
                 try:
-                    result = self.execute_sql(sql, df)
+
+                    result = self.execute_sql(
+                        sql,
+                        df
+                    )
 
                     trace.append(
                         f"Attempt {attempt + 1}: SQL executed successfully."
@@ -279,6 +328,7 @@ CHART: chart type
                     )
 
                     if attempt == self.max_attempts - 1:
+
                         raise RuntimeError(
                             f"SQL failed after {self.max_attempts} attempts: {error}"
                         )
@@ -299,7 +349,10 @@ CHART: chart type
                     )
 
             if result is None:
-                raise RuntimeError("No SQL result was generated.")
+
+                raise RuntimeError(
+                    "No SQL result was generated."
+                )
 
             # Step 4: Generate chart information
             chart_details = self.choose_chart(
@@ -311,16 +364,27 @@ CHART: chart type
                 "Step 4: Visualization generated."
             )
 
+            # Return final result
             return {
+
                 "status": "success",
+
                 "title": chart_details["title"],
+
                 "explanation": chart_details["explanation"],
+
                 "data": result,
+
                 "sql": sql,
+
                 "chart_type": chart_details["chart_type"],
+
                 "x": chart_details["x"],
+
                 "y": chart_details["y"],
+
                 "trace": trace
+
             }
 
         except Exception as error:
@@ -330,7 +394,11 @@ CHART: chart type
             )
 
             return {
+
                 "status": "error",
+
                 "error": str(error),
+
                 "trace": trace
+
             }
