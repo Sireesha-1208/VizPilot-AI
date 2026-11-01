@@ -2,5 +2,6 @@ streamlit
 pandas
 numpy
 plotly
-google-generativeai
+duckdb
+google-genai
 python-dotenv
