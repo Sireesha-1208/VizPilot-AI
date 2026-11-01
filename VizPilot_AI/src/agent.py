@@ -15,23 +15,22 @@ class VisualizationAgent:
 
         self.client = genai.Client(api_key=api_key)
 
-        self.model_name = "gemini-2.5-flash"
+        self.model_name = "gemini-3.8-flash"
         self.max_attempts = 3
 
     # Generate text using Gemini
-    def generate_text(self, prompt):
+   def generate_text(self, prompt):
+    response = self.client.interactions.create(
+        model=self.model_name,
+        input=prompt
+    )
 
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt
-        )
+    text = response.output_text
 
-        text = response.text
+    if not text:
+        raise RuntimeError("Gemini returned an empty response.")
 
-        if not text:
-            raise RuntimeError("Gemini returned an empty response.")
-
-        return text.strip()
+    return text.strip()
 
     # Analyze dataset columns
     def get_schema(self, df):
