@@ -9,35 +9,29 @@ from google import genai
 
 class VisualizationAgent:
 
-    def __init__(self):
-        # Gemini API configuration
-        api_key = st.secrets["GOOGLE_API_KEY"]
+    def generate_text(self, prompt):
+        try:
+            response = self.client.interactions.create(
+                model=self.model_name,
+                input=prompt,
+                timeout=60,
+                generation_config={
+                    "thinking_level": "low",
+                    "max_output_tokens": 800
+                }
+            )
 
-        self.client = genai.Client(api_key=api_key)
+            text = response.output_text
 
-        self.model_name = "gemini-3.8-flash"
-        self.max_attempts = 3
+            if not text:
+                raise RuntimeError("Gemini returned an empty response.")
 
-    # Generate text using Gemini
-    # Generate text using Gemini
-   def generate_text(self, prompt):
-    try:
-        response = self.client.interactions.create(
-            model=self.model_name,
-            input=prompt,
-            timeout=60,
-            generation_config={
-                "thinking_level": "low",
-                "max_output_tokens": 800
-            }
-        )
+            return text.strip()
 
-        text = response.output_text
-
-        if not text:
-            raise RuntimeError("Gemini returned an empty response.")
-
-        return text.strip()
+        except Exception as error:
+            raise RuntimeError(
+                f"Gemini API request failed: {error}"
+            ) from error
 
     except Exception as error:
         raise RuntimeError(
